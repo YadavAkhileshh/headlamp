@@ -159,7 +159,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
   const { getRootProps, getInputProps, open } = useDropzone({
     onDrop: (acceptedFiles: File[]) => onDrop(acceptedFiles),
     multiple: false,
-    noClick: false,
+    noClick: true,
   });
 
   function renderSwitch() {
@@ -239,6 +239,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                             onChange={onCheckboxChange}
                             color="primary"
                             checked={selectedClusters.includes(context.name)}
+                            inputProps={{ 'aria-label': context.name }}
                           />
                         </TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>{context.name}</TableCell>
@@ -343,6 +344,7 @@ function KubeConfigLoader() {
   const configuredClusters = useClustersConf(); // Get already configured clusters
   const dispatch = useDispatch();
   const { t } = useTranslation(['translation']);
+  const isConfiguring = React.useRef(false);
 
   useEffect(() => {
     if (fileContent && fileContent.contexts.length > 0) {
@@ -369,16 +371,25 @@ function KubeConfigLoader() {
         );
         setState(Step.SelectClusters);
       } else {
-        setState(Step.ConfigureClusters);
+        // Wait briefly so the validation loader is visible, then move to configuration
+        const timer = setTimeout(() => {
+          setState(Step.ConfigureClusters);
+        }, 1000);
+        return () => clearTimeout(timer);
       }
     }
-    if (state === Step.ConfigureClusters && fileContent) {
+    if (state === Step.ConfigureClusters && fileContent && !isConfiguring.current) {
       function loadClusters() {
+        isConfiguring.current = true;
         const selectedClusterConfig = configWithSelectedClusters(fileContent!, selectedClusters);
         setCluster({ kubeconfig: btoa(yaml.dump(selectedClusterConfig)) })
           .then(res => {
             if (res?.clusters?.length > 0) {
-              dispatch(setStatelessConfig({ statelessClusters: res.clusters }));
+              const clusterMap = res.clusters.reduce((acc: any, cluster: any) => {
+                acc[cluster.name] = cluster;
+                return acc;
+              }, {});
+              dispatch(setStatelessConfig({ statelessClusters: clusterMap }));
             }
             setState(Step.Success);
           })
@@ -388,12 +399,14 @@ function KubeConfigLoader() {
               t('translation|Error setting up clusters, please load a valid kubeconfig file')
             );
             setState(Step.SelectClusters);
+          })
+          .finally(() => {
+            isConfiguring.current = false;
           });
       }
       loadClusters();
     }
     return () => {};
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, fileContent, selectedClusters, configuredClusters, dispatch, t]);
 
   const onDrop = (acceptedFiles: File[]) => {
