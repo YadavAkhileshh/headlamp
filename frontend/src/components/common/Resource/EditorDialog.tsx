@@ -203,7 +203,7 @@ export default function EditorDialog(props: EditorDialogProps) {
   }
 
   function looksLikeJson(code: string) {
-    const trimmedCode = code.trimStart();
+    const trimmedCode = code.trimLeft();
     const firstChar = !!trimmedCode ? trimmedCode[0] : '';
     if (['{', '['].includes(firstChar)) {
       return true;
