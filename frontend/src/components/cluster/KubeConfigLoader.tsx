@@ -76,7 +76,7 @@ function configWithSelectedClusters(config: kubeconfig, selectedClusters: string
   };
 
   // We use a map to avoid duplicates since many contexts can point to the same cluster/user.
-  const clusters: { [key: string]: Cluster } = {};
+  const clusters: { [key: string]: KubeConfigCluster } = {};
   const users: { [key: string]: User } = {};
 
   selectedClusters.forEach(clusterName => {
@@ -160,7 +160,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
   const { getRootProps, getInputProps, open } = useDropzone({
     onDrop: (acceptedFiles: File[]) => onDrop(acceptedFiles),
     multiple: false,
-    noClick: true,
+    noClick: false,
   });
 
   function renderSwitch() {
@@ -192,7 +192,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
         );
       case Step.SelectClusters: {
         // Optimize lookup: precompute a map of cluster name to cluster object
-        const clusterMap = new Map<string, Cluster>();
+        const clusterMap = new Map<string, KubeConfigCluster>();
         (fileContent?.clusters ?? []).forEach(c => clusterMap.set(c.name, c));
 
         return (
@@ -240,7 +240,6 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                             onChange={onCheckboxChange}
                             color="primary"
                             checked={selectedClusters.includes(context.name)}
-                            inputProps={{ 'aria-label': context.name }}
                           />
                         </TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>{context.name}</TableCell>
@@ -284,14 +283,14 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
       case Step.ValidateKubeConfig:
         return (
           <Box style={{ textAlign: 'center' }}>
-            <Typography>{t('translation|Validating selected clusters')}</Typography>
+            <Typography variant="h6">{t('translation|Validating selected clusters')}</Typography>
             <Loader title={t('translation|Validating selected clusters')} />
           </Box>
         );
       case Step.ConfigureClusters:
         return (
           <Box style={{ textAlign: 'center' }}>
-            <Typography>{t('translation|Setting up clusters')}</Typography>
+            <Typography variant="h6">{t('translation|Setting up clusters')}</Typography>
             <Loader title={t('translation|Setting up clusters')} />
           </Box>
         );
@@ -352,7 +351,6 @@ function KubeConfigLoader() {
   const configuredClusters = useClustersConf(); // Get already configured clusters
   const dispatch = useDispatch();
   const { t } = useTranslation(['translation']);
-  const isConfiguring = React.useRef(false);
 
   useEffect(() => {
     if (fileContent && fileContent.contexts.length > 0) {
@@ -382,9 +380,8 @@ function KubeConfigLoader() {
         setState(Step.ConfigureClusters);
       }
     }
-    if (state === Step.ConfigureClusters && fileContent && !isConfiguring.current) {
+    if (state === Step.ConfigureClusters && fileContent) {
       function loadClusters() {
-        isConfiguring.current = true;
         const selectedClusterConfig = configWithSelectedClusters(fileContent!, selectedClusters);
         setCluster({ kubeconfig: btoa(yaml.dump(selectedClusterConfig)) })
           .then(res => {
@@ -406,14 +403,12 @@ function KubeConfigLoader() {
               t('translation|Error setting up clusters, please load a valid kubeconfig file')
             );
             setState(Step.SelectClusters);
-          })
-          .finally(() => {
-            isConfiguring.current = false;
           });
       }
       loadClusters();
     }
     return () => {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, fileContent, selectedClusters, configuredClusters, dispatch, t]);
 
   const onDrop = (acceptedFiles: File[]) => {
