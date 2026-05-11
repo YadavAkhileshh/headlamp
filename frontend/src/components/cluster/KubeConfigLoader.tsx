@@ -38,12 +38,13 @@ import { useDispatch } from 'react-redux';
 import { useHistory } from 'react-router-dom';
 import { useClustersConf } from '../../lib/k8s';
 import { setCluster } from '../../lib/k8s/api/v1/clusterApi';
+import { Cluster } from '../../lib/k8s/cluster';
 import { setStatelessConfig } from '../../redux/configSlice';
 import { DropZoneBox } from '../common/DropZoneBox';
 import Loader from '../common/Loader';
 import { ClusterDialog } from './Chooser';
 
-interface Cluster {
+interface KubeConfigCluster {
   name: string;
   cluster: {
     server: string;
@@ -60,7 +61,7 @@ interface User {
 }
 
 interface kubeconfig {
-  clusters: Cluster[];
+  clusters: KubeConfigCluster[];
   users: User[];
   contexts: { name: string; context: { cluster: string; user: string } }[];
   currentContext: string;
@@ -281,9 +282,16 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
         );
       }
       case Step.ValidateKubeConfig:
+        return (
+          <Box style={{ textAlign: 'center' }}>
+            <Typography>{t('translation|Validating selected clusters')}</Typography>
+            <Loader title={t('translation|Validating selected clusters')} />
+          </Box>
+        );
       case Step.ConfigureClusters:
         return (
           <Box style={{ textAlign: 'center' }}>
+            <Typography>{t('translation|Setting up clusters')}</Typography>
             <Loader title={t('translation|Setting up clusters')} />
           </Box>
         );
@@ -371,11 +379,7 @@ function KubeConfigLoader() {
         );
         setState(Step.SelectClusters);
       } else {
-        // Wait briefly so the validation loader is visible, then move to configuration
-        const timer = setTimeout(() => {
-          setState(Step.ConfigureClusters);
-        }, 1000);
-        return () => clearTimeout(timer);
+        setState(Step.ConfigureClusters);
       }
     }
     if (state === Step.ConfigureClusters && fileContent && !isConfiguring.current) {
@@ -385,10 +389,13 @@ function KubeConfigLoader() {
         setCluster({ kubeconfig: btoa(yaml.dump(selectedClusterConfig)) })
           .then(res => {
             if (res?.clusters?.length > 0) {
-              const clusterMap = res.clusters.reduce((acc: any, cluster: any) => {
-                acc[cluster.name] = cluster;
-                return acc;
-              }, {});
+              const clusterMap = res.clusters.reduce(
+                (acc: Record<string, Cluster>, cluster: Cluster) => {
+                  acc[cluster.name] = cluster;
+                  return acc;
+                },
+                {}
+              );
               dispatch(setStatelessConfig({ statelessClusters: clusterMap }));
             }
             setState(Step.Success);
