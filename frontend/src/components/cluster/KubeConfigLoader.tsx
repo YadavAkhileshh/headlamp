@@ -240,6 +240,11 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                             onChange={onCheckboxChange}
                             color="primary"
                             checked={selectedClusters.includes(context.name)}
+                            inputProps={{
+                              'aria-label': t('translation|Select {{contextName}}', {
+                                contextName: context.name,
+                              }),
+                            }}
                           />
                         </TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>{context.name}</TableCell>
