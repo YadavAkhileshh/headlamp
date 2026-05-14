@@ -31,6 +31,8 @@ import (
 	"github.com/kubernetes-sigs/headlamp/backend/pkg/cache"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/portforward"
 )
 
 // TestHandlePortForwardReadiness tests handlePortForwardReadiness function.
@@ -232,6 +234,135 @@ func TestPortForwardRequestValidate(t *testing.T) {
 
 	err = req.Validate()
 	assert.NoError(t, err)
+}
+
+// TestBuildPortForwardURL ensures the upstream port-forward URL preserves the
+// kubeconfig server's path prefix (relevant when the cluster is fronted by a
+// path-routing reverse proxy such as Warpgate).
+func TestBuildPortForwardURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		host      string
+		namespace string
+		podName   string
+		want      string
+	}{
+		{
+			name:      "no path prefix",
+			host:      "https://kubernetes.default.svc:443",
+			namespace: "default",
+			podName:   "my-pod",
+			want:      "https://kubernetes.default.svc:443/api/v1/namespaces/default/pods/my-pod/portforward",
+		},
+		{
+			name:      "single segment path prefix",
+			host:      "https://example.com/k8s",
+			namespace: "default",
+			podName:   "my-pod",
+			want:      "https://example.com/k8s/api/v1/namespaces/default/pods/my-pod/portforward",
+		},
+		{
+			name:      "trailing slash path prefix",
+			host:      "https://example.com/k8s/",
+			namespace: "default",
+			podName:   "my-pod",
+			want:      "https://example.com/k8s/api/v1/namespaces/default/pods/my-pod/portforward",
+		},
+		{
+			name:      "Warpgate-style multi-segment prefix",
+			host:      "https://k8s.example.com:443/proxy-routed-cluster",
+			namespace: "kube-system",
+			podName:   "traefik-69fpr",
+			want: "https://k8s.example.com:443/proxy-routed-cluster" +
+				"/api/v1/namespaces/kube-system/pods/traefik-69fpr/portforward",
+		},
+		{
+			name:      "missing scheme defaults to https",
+			host:      "kubernetes.default.svc:443",
+			namespace: "default",
+			podName:   "my-pod",
+			want:      "https://kubernetes.default.svc:443/api/v1/namespaces/default/pods/my-pod/portforward",
+		},
+		{
+			name:      "bare hostname defaults to https",
+			host:      "example.com",
+			namespace: "default",
+			podName:   "my-pod",
+			want:      "https://example.com/api/v1/namespaces/default/pods/my-pod/portforward",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildPortForwardURL(tt.host, tt.namespace, tt.podName)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.String())
+		})
+	}
+}
+
+// TestBuildPortForwardURLInvalidHost ensures unparseable or empty hosts yield
+// an error instead of silently producing a relative URL that would fail later
+// in the dialer.
+func TestBuildPortForwardURLInvalidHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+	}{
+		{"unparseable", "://not a url"},
+		{"empty", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := buildPortForwardURL(tt.host, "ns", "pod")
+			assert.Error(t, err)
+		})
+	}
+}
+
+// TestBuildPortForwardDialer verifies dialer selection: with a valid REST
+// config we get a WebSocket-first FallbackDialer (which itself falls back to
+// SPDY on upgrade failures); when the WebSocket dialer cannot be created we
+// fall back to a SPDY-only dialer rather than erroring.
+func TestBuildPortForwardDialer(t *testing.T) {
+	fullURL, err := url.Parse("https://example.com/api/v1/namespaces/default/pods/p/portforward")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name         string
+		rConf        *rest.Config
+		wantFallback bool
+	}{
+		{
+			name:         "websocket dialer available, wraps in FallbackDialer",
+			rConf:        &rest.Config{Host: "https://example.com"},
+			wantFallback: true,
+		},
+		{
+			// Insecure + CAData makes TLSConfigFor (called by
+			// websocket.RoundTripperFor) fail, exercising the SPDY-only path.
+			name: "websocket dialer unavailable, returns SPDY-only dialer",
+			rConf: &rest.Config{
+				Host: "https://example.com",
+				TLSClientConfig: rest.TLSClientConfig{
+					Insecure: true,
+					CAData:   []byte("not-a-real-ca"),
+				},
+			},
+			wantFallback: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := buildPortForwardDialer(tt.rConf, fullURL, nil, nil)
+			require.NotNil(t, d)
+
+			_, isFallback := d.(*portforward.FallbackDialer)
+			assert.Equal(t, tt.wantFallback, isFallback)
+		})
+	}
 }
 
 // TestStopOrDeletePortForwardRequest.Validate() function.
