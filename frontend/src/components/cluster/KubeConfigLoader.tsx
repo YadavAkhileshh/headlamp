@@ -18,6 +18,7 @@ import { InlineIcon } from '@iconify/react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import DialogTitle from '@mui/material/DialogTitle';
 import FormControl from '@mui/material/FormControl';
 import Grid from '@mui/material/Grid';
 import Paper from '@mui/material/Paper';
@@ -171,22 +172,19 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
             <DropZoneBox border={1} borderColor="secondary.main" {...getRootProps()}>
               <FormControl>
                 <input {...getInputProps()} />
-                <Tooltip
-                  title={t('translation|Drag & drop or choose kubeconfig file here')}
-                  placement="top"
-                >
+                <Tooltip title={t('Drag & drop or choose kubeconfig file here')} placement="top">
                   <Button
                     variant="contained"
                     onClick={open}
                     startIcon={<InlineIcon icon="mdi:upload" width={32} />}
                   >
-                    {t('translation|Choose file')}
+                    {t('Choose file')}
                   </Button>
                 </Tooltip>
               </FormControl>
             </DropZoneBox>
             <Box style={{ display: 'flex', justifyContent: 'center' }}>
-              <WideButton onClick={onCancel}>{t('translation|Back')}</WideButton>
+              <WideButton onClick={onCancel}>{t('Back')}</WideButton>
             </Box>
           </Box>
         );
@@ -205,9 +203,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
               alignItems: 'center',
             }}
           >
-            <Typography variant="h5" sx={{ textAlign: 'center', marginBottom: '20px' }}>
-              {t('translation|Select clusters to add')}
-            </Typography>
+            {/* Step title is now in the DialogTitle component */}
             <TableContainer
               component={Paper}
               variant="outlined"
@@ -221,15 +217,15 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                 <TableHead>
                   <TableRow>
                     <TableCell padding="checkbox" />
-                    <TableCell>{t('translation|Context Name')}</TableCell>
-                    <TableCell>{t('translation|Server URL')}</TableCell>
-                    <TableCell>{t('translation|User')}</TableCell>
+                    <TableCell>{t('Context Name')}</TableCell>
+                    <TableCell>{t('Server URL')}</TableCell>
+                    <TableCell>{t('User')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {(fileContent?.contexts ?? []).map(context => {
                     const cluster = clusterMap.get(context.context.cluster);
-                    const serverUrl = cluster?.cluster?.server || t('translation|Unknown');
+                    const serverUrl = cluster?.cluster?.server || t('Unknown');
 
                     return (
                       <TableRow key={context.name} hover>
@@ -241,7 +237,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                             color="primary"
                             checked={selectedClusters.includes(context.name)}
                             inputProps={{
-                              'aria-label': t('translation|Select {{contextName}}', {
+                              'aria-label': t('Select {{contextName}}', {
                                 contextName: context.name,
                               }),
                             }}
@@ -252,7 +248,7 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                           {serverUrl}
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>
-                          {context.context.user || t('translation|N/A')}
+                          {context.context.user || t('N/A')}
                         </TableCell>
                       </TableRow>
                     );
@@ -275,11 +271,11 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
                   onClick={onNext}
                   disabled={selectedClusters.length === 0}
                 >
-                  {t('translation|Next')}
+                  {t('Next')}
                 </WideButton>
               </Grid>
               <Grid item>
-                <WideButton onClick={onBack}>{t('translation|Back')}</WideButton>
+                <WideButton onClick={onBack}>{t('Back')}</WideButton>
               </Grid>
             </Grid>
           </Box>
@@ -288,15 +284,15 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
       case Step.ValidateKubeConfig:
         return (
           <Box style={{ textAlign: 'center' }}>
-            <Typography variant="h6">{t('translation|Validating selected clusters')}</Typography>
-            <Loader title={t('translation|Validating selected clusters')} />
+            <Typography variant="h6">{t('Validating selected clusters')}</Typography>
+            <Loader title={t('Validating selected clusters')} />
           </Box>
         );
       case Step.ConfigureClusters:
         return (
           <Box style={{ textAlign: 'center' }}>
-            <Typography variant="h6">{t('translation|Setting up clusters')}</Typography>
-            <Loader title={t('translation|Setting up clusters')} />
+            <Typography variant="h6">{t('Setting up clusters')}</Typography>
+            <Loader title={t('Setting up clusters')} />
           </Box>
         );
       case Step.Success:
@@ -311,10 +307,10 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
             }}
           >
             <Box style={{ padding: '32px' }}>
-              <Typography>{t('translation|Clusters successfully set up!')}</Typography>
+              <Typography>{t('Clusters successfully set up!')}</Typography>
             </Box>
             <WideButton variant="contained" onClick={onFinish}>
-              {t('translation|Finish')}
+              {t('Finish')}
             </WideButton>
           </Box>
         );
@@ -327,7 +323,11 @@ export function PureKubeConfigLoader(props: PureKubeConfigLoaderProps) {
       // Disable backdrop clicking.
       onClose={() => {}}
       useCover
+      aria-labelledby="kubeconfig-loader-title"
     >
+      <DialogTitle id="kubeconfig-loader-title">
+        {step === Step.SelectClusters ? t('Select clusters to add') : t('Load from KubeConfig')}
+      </DialogTitle>
       {error && error !== '' ? (
         <Box
           style={{
@@ -373,12 +373,9 @@ function KubeConfigLoader() {
 
       if (alreadyConfiguredClusters.length > 0) {
         setError(
-          t(
-            'translation|Duplicate cluster: {{ clusterNames }} in the list. Please edit the context name.',
-            {
-              clusterNames: alreadyConfiguredClusters.join(', '),
-            }
-          )
+          t('Duplicate cluster: {{ clusterNames }} in the list. Please edit the context name.', {
+            clusterNames: alreadyConfiguredClusters.join(', '),
+          })
         );
         setState(Step.SelectClusters);
       } else {
@@ -404,9 +401,7 @@ function KubeConfigLoader() {
           })
           .catch(e => {
             console.debug('Error setting up clusters from kubeconfig:', e);
-            setError(
-              t('translation|Error setting up clusters, please load a valid kubeconfig file')
-            );
+            setError(t('Error setting up clusters, please load a valid kubeconfig file'));
             setState(Step.SelectClusters);
           });
       }
@@ -419,21 +414,21 @@ function KubeConfigLoader() {
   const onDrop = (acceptedFiles: File[]) => {
     setError('');
     const reader = new FileReader();
-    reader.onerror = () => setError(t("translation|Couldn't read kubeconfig file"));
+    reader.onerror = () => setError(t("Couldn't read kubeconfig file"));
     reader.onload = () => {
       try {
         const data = new TextDecoder().decode(reader.result as ArrayBuffer);
         const doc = yaml.load(data) as kubeconfig;
         if (!doc.clusters) {
-          throw new Error(t('translation|No clusters found!'));
+          throw new Error(t('No clusters found!'));
         }
         if (!doc.contexts) {
-          throw new Error(t('translation|No contexts found!'));
+          throw new Error(t('No contexts found!'));
         }
         setFileContent(doc);
       } catch (err) {
         setError(
-          t(`translation|Invalid kubeconfig file: {{ errorMessage }}`, {
+          t(`Invalid kubeconfig file: {{ errorMessage }}`, {
             errorMessage: (err as Error).message,
           })
         );
