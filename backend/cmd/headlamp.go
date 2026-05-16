@@ -1273,10 +1273,7 @@ func StartHeadlampServer(config *HeadlampConfig) {
 		handler = hostValidationMiddleware(config.ListenAddr, config.Port)(handler)
 	}
 
-	listenHost := strings.TrimPrefix(strings.TrimSuffix(config.ListenAddr, "]"), "[")
-	addr := net.JoinHostPort(listenHost, fmt.Sprintf("%d", config.Port))
-
-	server := &http.Server{Addr: addr, Handler: handler} //nolint:gosec
+	server := createHTTPServer(config, handler)
 
 	serverDone := make(chan struct{})
 	setupGracefulShutdown(server, cancel, serverDone)
@@ -1293,6 +1290,18 @@ func StartHeadlampServer(config *HeadlampConfig) {
 		logger.Log(logger.LevelError, nil, err, "Failed to start server")
 		HandleServerStartError(&err)
 	}
+}
+
+func createHTTPServer(config *HeadlampConfig, handler http.Handler) *http.Server {
+	listenHost := strings.TrimPrefix(strings.TrimSuffix(config.ListenAddr, "]"), "[")
+	addr := net.JoinHostPort(listenHost, fmt.Sprintf("%d", config.Port))
+
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	} //nolint:gosec // ReadTimeout and WriteTimeout are intentionally not set to support WebSockets.
 }
 
 // initTelemetry initializes telemetry and metrics for the server.
