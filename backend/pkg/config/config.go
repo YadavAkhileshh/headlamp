@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -352,11 +351,9 @@ func Parse(args []string) (*Config, error) {
 
 	// 7. Post-process: patch plugin flag and kubeconfig path.
 	patchWatchPluginsChanges(&config, explicitFlags)
-
 	if err := setKubeConfigPath(&config); err != nil {
 		return nil, err
 	}
-
 	setMeDefaults(&config)
 
 	// 8. Validate flags that depend on build-time behaviour.
@@ -592,10 +589,10 @@ func defaultUserPluginDir() string {
 }
 
 func GetDefaultKubeConfigPath() (string, error) {
-	currentUser, err := user.Current()
+	homeDirectory, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("getting current user for kubeconfig path: %w", err)
+		return "", fmt.Errorf("failed to determine user home directory: %w", err)
 	}
 
-	return filepath.Join(currentUser.HomeDir, ".kube", "config"), nil
+	return filepath.Join(homeDirectory, ".kube", "config"), nil
 }

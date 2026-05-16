@@ -592,13 +592,15 @@ func TestDrainAndCordonNode(t *testing.T) { //nolint:funlen
 
 	cache := cache.New[interface{}]()
 	kubeConfigStore := kubeconfig.NewContextStore()
+	kubeConfigPath := filepath.Join("headlamp_testdata", "kubeconfig")
+
 	tests := []test{
 		{
 			handler: createHeadlampHandler(context.Background(), &HeadlampConfig{
 				HeadlampConfig: &headlampconfig.HeadlampConfig{
 					HeadlampCFG: &headlampconfig.HeadlampCFG{
 						UseInCluster:    false,
-						KubeConfigPath:  getDefaultKubeConfigPathForTest(t),
+						KubeConfigPath:  kubeConfigPath,
 						KubeConfigStore: kubeConfigStore,
 					},
 					Cache:            cache,
@@ -825,19 +827,24 @@ func TestDeletePlugin(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
+
 	cache := cache.New[interface{}]()
 	kubeConfigStore := kubeconfig.NewContextStore()
+
+	kubeConfigPath := filepath.Join("headlamp_testdata", "kubeconfig")
 
 	c := HeadlampConfig{
 		HeadlampConfig: &headlampconfig.HeadlampConfig{
 			HeadlampCFG: &headlampconfig.HeadlampCFG{
 				UseInCluster:    false,
-				KubeConfigPath:  getDefaultKubeConfigPathForTest(t),
+				KubeConfigPath:  kubeConfigPath,
 				PluginDir:       devPluginDir,
 				UserPluginDir:   userPluginDir,
 				KubeConfigStore: kubeConfigStore,
 			},
-			Cache: cache,
+			Cache:            cache,
+			TelemetryConfig:  GetDefaultTestTelemetryConfig(),
+			TelemetryHandler: &telemetry.RequestHandler{},
 		},
 	}
 
@@ -883,11 +890,13 @@ func TestHandleClusterAPI_XForwardedHost(t *testing.T) {
 
 	cache := cache.New[interface{}]()
 
+	kubeConfigPath := filepath.Join("headlamp_testdata", "kubeconfig")
+
 	c := HeadlampConfig{
 		HeadlampConfig: &headlampconfig.HeadlampConfig{
 			HeadlampCFG: &headlampconfig.HeadlampCFG{
 				UseInCluster:    false,
-				KubeConfigPath:  getDefaultKubeConfigPathForTest(t),
+				KubeConfigPath:  kubeConfigPath,
 				KubeConfigStore: kubeConfigStore,
 			},
 			Cache:            cache,
@@ -2055,10 +2064,9 @@ func newRealK8sHeadlampConfig(t *testing.T) (*HeadlampConfig, string) {
 	kubeConfigPath := os.Getenv("KUBECONFIG")
 	if kubeConfigPath == "" {
 		var err error
-
 		kubeConfigPath, err = config.GetDefaultKubeConfigPath()
 		if err != nil {
-			t.Fatalf("failed to get default kubeconfig path: %v", err)
+			t.Skipf("unable to determine default kubeconfig path, skipping real K8s integration test: %v", err)
 		}
 	}
 
