@@ -73,7 +73,7 @@ func stopOrDeletePortForward(cache cache.Cache[interface{}], cluster string, id 
 	safeCloseChan(portforward.closeChan)
 
 	if isStopRequest {
-		portforward.Status = STOPPED
+		portforward.setStatus(STOPPED, portforward.Error)
 		portforwardstore(cache, portforward)
 	} else {
 		err := cache.Delete(context.Background(), portforwardKeyGenerator(portforward))

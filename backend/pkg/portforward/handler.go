@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -83,7 +84,8 @@ func (p *portForwardRequest) Validate() error {
 }
 
 type portForward struct {
-	ID               string `json:"id"`
+	mu               *sync.RWMutex `json:"-"`
+	ID               string        `json:"id"`
 	closeChan        chan struct{}
 	Pod              string `json:"pod"`
 	Service          string `json:"service"`
@@ -94,6 +96,53 @@ type portForward struct {
 	TargetPort       string `json:"targetPort"`
 	Status           string `json:"status"`
 	Error            string `json:"error"`
+}
+
+func (p *portForward) setStatus(status, errMsg string) {
+	if p.mu != nil {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+	}
+	p.Status = status
+	p.Error = errMsg
+}
+
+// updateStatusIfRunning sets the status to Stopped and updates the error if it's currently empty,
+// but only if the current status is Running.
+func (p *portForward) updateStatusIfRunning(msg string) {
+	if p.mu != nil {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+	}
+
+	if p.Status == RUNNING {
+		p.Status = STOPPED
+	}
+
+	if p.Error == "" {
+		p.Error = msg
+	}
+}
+
+func (p *portForward) snapshot() portForward {
+	if p.mu != nil {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
+	}
+
+	return portForward{
+		ID:               p.ID,
+		closeChan:        p.closeChan,
+		Pod:              p.Pod,
+		Service:          p.Service,
+		ServiceNamespace: p.ServiceNamespace,
+		Namespace:        p.Namespace,
+		Cluster:          p.Cluster,
+		Port:             p.Port,
+		TargetPort:       p.TargetPort,
+		Status:           p.Status,
+		Error:            p.Error,
+	}
 }
 
 func getFreePort() (int, error) {
@@ -377,9 +426,8 @@ func monitorPodAndManagePortForward(
 				errMsg := fmt.Sprintf("Pod %s/%s check failed: %v", pfDetails.Namespace, pfDetails.Pod, err)
 				logger.Log(logger.LevelError, logParams, errors.New(errMsg), "stopping port-forward due to pod status")
 
-				pfDetails.Status = STOPPED
-				pfDetails.Error = errMsg
-				portforwardstore(cache, *pfDetails)
+				pfDetails.setStatus(STOPPED, errMsg)
+				portforwardstore(cache, pfDetails.snapshot())
 				safeCloseChan(pfDetails.closeChan)
 
 				return
@@ -400,10 +448,9 @@ func handlePortForwardError(
 ) error {
 	logger.Log(logger.LevelError, logParams, errors.New(errMsg), "portforward error")
 
-	pfDetails.Status = STOPPED
-	pfDetails.Error = errMsg
+	pfDetails.setStatus(STOPPED, errMsg)
 
-	portforwardstore(cache, *pfDetails)
+	portforwardstore(cache, pfDetails.snapshot())
 	safeCloseChan(pfDetails.closeChan)
 
 	return errors.New(errMsg)
@@ -415,9 +462,8 @@ func handlePortForwardSuccess(
 	pfDetails *portForward,
 	logParams map[string]string,
 ) {
-	pfDetails.Status = RUNNING
-	pfDetails.Error = ""
-	portforwardstore(cache, *pfDetails)
+	pfDetails.setStatus(RUNNING, "")
+	portforwardstore(cache, pfDetails.snapshot())
 	logger.Log(logger.LevelInfo, logParams, nil, "Port forward ready and running.")
 }
 
@@ -455,15 +501,8 @@ func handlePortForwardReadiness(
 	case <-pfDetails.closeChan:
 		msg := "portforward stopped before becoming ready"
 
-		if pfDetails.Status == RUNNING {
-			pfDetails.Status = STOPPED
-		}
-
-		if pfDetails.Error == "" {
-			pfDetails.Error = msg
-		}
-
-		portforwardstore(cache, *pfDetails)
+		pfDetails.updateStatusIfRunning(msg)
+		portforwardstore(cache, pfDetails.snapshot())
 		logger.Log(logger.LevelInfo, logParams, nil, msg)
 
 		return errors.New(msg)
@@ -492,10 +531,10 @@ func runAndMonitorPortForward(
 		if err := forwarder.ForwardPorts(); err != nil {
 			logger.Log(logger.LevelError, logParams, err, "ForwardPorts() failed")
 
-			pfDetails.Status = STOPPED
-			pfDetails.Error = err.Error()
+			pfDetails.setStatus(STOPPED, err.Error())
+			snapshot := pfDetails.snapshot()
 
-			portforwardstore(cache, *pfDetails)
+			portforwardstore(cache, snapshot)
 
 			select {
 			case forwardErrChan <- err:
@@ -504,14 +543,8 @@ func runAndMonitorPortForward(
 		} else {
 			logger.Log(logger.LevelInfo, logParams, nil, "ForwardPorts() exited.")
 
-			if pfDetails.Status == RUNNING {
-				pfDetails.Status = STOPPED
-				if pfDetails.Error == "" {
-					pfDetails.Error = "Port forward stopped."
-				}
-
-				portforwardstore(cache, *pfDetails)
-			}
+			pfDetails.updateStatusIfRunning("Port forward stopped.")
+			portforwardstore(cache, pfDetails.snapshot())
 		}
 
 		safeCloseChan(pfDetails.closeChan)
@@ -563,6 +596,7 @@ func startPortForward(kContext *kubeconfig.Context, cache cache.Cache[interface{
 	_ = outBuffer // Avoid unused variable error if outBuffer isn't used directly later
 
 	pfDetails := &portForward{
+		mu:               &sync.RWMutex{},
 		ID:               p.ID,
 		closeChan:        stopChan,
 		Pod:              p.Pod,

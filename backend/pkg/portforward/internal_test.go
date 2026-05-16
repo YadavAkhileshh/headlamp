@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -43,6 +44,7 @@ func TestHandlePortForwardReadiness(t *testing.T) {
 
 	t.Run("closed_channel", func(t *testing.T) {
 		pfDetails := &portForward{
+			mu:        &sync.RWMutex{},
 			ID:        "id",
 			Cluster:   "cluster",
 			closeChan: make(chan struct{}, 1),
@@ -61,6 +63,7 @@ func TestHandlePortForwardReadiness(t *testing.T) {
 
 	t.Run("nil_error", func(t *testing.T) {
 		pfDetails := &portForward{
+			mu:        &sync.RWMutex{},
 			ID:        "id",
 			Cluster:   "cluster",
 			closeChan: make(chan struct{}, 1),
@@ -79,6 +82,7 @@ func TestHandlePortForwardReadiness(t *testing.T) {
 
 	t.Run("actual_error", func(t *testing.T) {
 		pfDetails := &portForward{
+			mu:        &sync.RWMutex{},
 			ID:        "id",
 			Cluster:   "cluster",
 			closeChan: make(chan struct{}, 1),
@@ -164,7 +168,7 @@ func TestStopOrDeletePortForward(t *testing.T) {
 	cache := cache.New[interface{}]()
 	ch := make(chan struct{}, 1)
 
-	p := portForward{ID: "id", Cluster: "cluster", closeChan: ch}
+	p := portForward{mu: &sync.RWMutex{}, ID: "id", Cluster: "cluster", closeChan: ch}
 
 	err := cache.Set(context.Background(), portforwardKeyGenerator(p), p)
 	require.NoError(t, err)
@@ -417,6 +421,7 @@ func TestHandlePortForwardError(t *testing.T) {
 	ch := make(chan struct{}, 1)
 
 	pfDetails := &portForward{
+		mu:        &sync.RWMutex{},
 		ID:        "err-test",
 		Cluster:   "cluster",
 		Status:    RUNNING,
@@ -458,6 +463,7 @@ func TestHandlePortForwardSuccess(t *testing.T) {
 	c := cache.New[interface{}]()
 
 	pfDetails := &portForward{
+		mu:      &sync.RWMutex{},
 		ID:      "success-test",
 		Cluster: "cluster",
 		Status:  STOPPED,
@@ -496,7 +502,7 @@ func TestGetPortForwardList_UserIDKeyIsolation(t *testing.T) {
 	c := cache.New[interface{}]()
 
 	// Seed a portforward under the base cluster key (no user ID).
-	pf := portForward{ID: "pf-1", Cluster: "cluster", Pod: "web", Namespace: "default", Status: RUNNING}
+	pf := portForward{mu: &sync.RWMutex{}, ID: "pf-1", Cluster: "cluster", Pod: "web", Namespace: "default", Status: RUNNING}
 	portforwardstore(c, pf)
 
 	// Query with the base cluster key — should find the entry.
@@ -515,7 +521,7 @@ func TestGetPortForwardByID_UserIDKeyIsolation(t *testing.T) {
 	c := cache.New[interface{}]()
 
 	// Seed a portforward under the base cluster key.
-	pf := portForward{ID: "pf-2", Cluster: "cluster", Pod: "api", Namespace: "prod", Status: RUNNING}
+	pf := portForward{mu: &sync.RWMutex{}, ID: "pf-2", Cluster: "cluster", Pod: "api", Namespace: "prod", Status: RUNNING}
 	portforwardstore(c, pf)
 
 	// Lookup with the base cluster key — should succeed.
@@ -534,7 +540,7 @@ func TestGetPortForwardsHandler_UserIDKeyIsolation(t *testing.T) {
 	c := cache.New[interface{}]()
 
 	// Seed a portforward under the base cluster key.
-	pf := portForward{ID: "pf-3", Cluster: "cluster", Pod: "nginx", Namespace: "default", Status: RUNNING}
+	pf := portForward{mu: &sync.RWMutex{}, ID: "pf-3", Cluster: "cluster", Pod: "nginx", Namespace: "default", Status: RUNNING}
 	portforwardstore(c, pf)
 
 	// Request WITHOUT user ID header — should return the seeded entry.
@@ -579,7 +585,7 @@ func TestGetPortForwardByIDHandler_UserIDKeyIsolation(t *testing.T) {
 	c := cache.New[interface{}]()
 
 	// Seed a portforward under the base cluster key.
-	pf := portForward{ID: "pf-4", Cluster: "cluster", Pod: "redis", Namespace: "cache", Status: RUNNING}
+	pf := portForward{mu: &sync.RWMutex{}, ID: "pf-4", Cluster: "cluster", Pod: "redis", Namespace: "cache", Status: RUNNING}
 	portforwardstore(c, pf)
 
 	// Request WITHOUT user ID header — should find the entry.
@@ -620,7 +626,7 @@ func TestStopOrDeletePortForwardHandler_UserIDKeyIsolation(t *testing.T) {
 
 	// Seed a portforward under the base cluster key with a closeChan.
 	ch := make(chan struct{}, 1)
-	pf := portForward{ID: "pf-5", Cluster: "cluster", Pod: "app", Namespace: "ns", Status: RUNNING, closeChan: ch}
+	pf := portForward{mu: &sync.RWMutex{}, ID: "pf-5", Cluster: "cluster", Pod: "app", Namespace: "ns", Status: RUNNING, closeChan: ch}
 	portforwardstore(c, pf)
 
 	// Try to stop with a user ID header — should fail because the key is different.
