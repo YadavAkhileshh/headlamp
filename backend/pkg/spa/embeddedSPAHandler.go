@@ -7,7 +7,6 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/kubernetes-sigs/headlamp/backend/pkg/logger"
@@ -25,21 +24,21 @@ type embeddedSpaHandler struct {
 
 // ServeHTTP serves the static files embedded in the binary.
 func (h embeddedSpaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	requestPath := strings.TrimPrefix(r.URL.Path, h.baseURL)
-	requestPath = strings.TrimPrefix(requestPath, "/")
-	requestPath = path.Clean(requestPath)
+	rPath := strings.TrimPrefix(r.URL.Path, h.baseURL)
+	rPath = strings.TrimPrefix(rPath, "/")
+	rPath = path.Clean(rPath)
 
-	if requestPath == "" ||
-		requestPath == "." ||
-		requestPath == "/" ||
-		path.IsAbs(requestPath) ||
-		requestPath == ".." ||
-		strings.HasPrefix(requestPath, "../") {
-		requestPath = h.indexPath
+	if rPath == ".." || strings.HasPrefix(rPath, "../") {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	if rPath == "" || rPath == "." {
+		rPath = h.indexPath
 	}
 
 	// Prepend "static" to the path as that's the root in our embed.FS
-	fullPath := path.Join("static", requestPath)
+	fullPath := path.Join("static", rPath)
 	servedPath := fullPath
 
 	content, err := h.serveFile(fullPath)
@@ -58,7 +57,7 @@ func (h embeddedSpaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		isServingIndex = true
 	} else {
 		// Check if we're directly serving the index file
-		isServingIndex = requestPath == h.indexPath
+		isServingIndex = rPath == h.indexPath
 	}
 
 	// if we're serving the index.html file and have a baseURL, replace the headlampBaseUrl with the baseURL
@@ -74,7 +73,7 @@ func (h embeddedSpaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set the correct Content-Type header
-	ext := filepath.Ext(servedPath)
+	ext := path.Ext(servedPath)
 
 	contentType := mime.TypeByExtension(ext)
 	if contentType == "" {
@@ -89,8 +88,8 @@ func (h embeddedSpaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h embeddedSpaHandler) serveFile(path string) ([]byte, error) {
-	f, err := h.staticFS.Open(path)
+func (h embeddedSpaHandler) serveFile(filePath string) ([]byte, error) {
+	f, err := h.staticFS.Open(filePath)
 	if err != nil {
 		return nil, err
 	}

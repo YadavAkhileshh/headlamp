@@ -792,22 +792,22 @@ func TestDeletePlugin(t *testing.T) {
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// create user-plugins dir
-	userPluginDir := tempDir + "/user-plugins"
+	userPluginDir := filepath.Join(tempDir, "user-plugins")
 	err = os.Mkdir(userPluginDir, 0o750)
 	require.NoError(t, err)
 
 	// create dev plugins dir
-	devPluginDir := tempDir + "/plugins"
+	devPluginDir := filepath.Join(tempDir, "plugins")
 	err = os.Mkdir(devPluginDir, 0o750)
 	require.NoError(t, err)
 
 	// create plugin in dev dir
-	pluginDir := devPluginDir + "/test-plugin"
+	pluginDir := filepath.Join(devPluginDir, "test-plugin")
 	err = os.Mkdir(pluginDir, 0o750)
 	require.NoError(t, err)
 
 	// create plugin file
-	pluginFile := pluginDir + "/main.js"
+	pluginFile := filepath.Join(pluginDir, "main.js")
 	f, err := os.Create(pluginFile) //nolint:gosec
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
@@ -1061,7 +1061,7 @@ func TestCustomNameToExtensions(t *testing.T) {
 			tmpFile, err := os.CreateTemp(t.TempDir(), "kubeconfig-*.yaml")
 			require.NoError(t, err)
 
-			_ = tmpFile.Close()
+			require.NoError(t, tmpFile.Close())
 
 			config := &api.Config{
 				Contexts: map[string]*api.Context{
