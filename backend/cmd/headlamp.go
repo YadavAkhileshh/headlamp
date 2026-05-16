@@ -33,7 +33,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -118,34 +117,27 @@ type OauthConfig struct {
 	Cluster      string // cluster context name this is associated with
 }
 
-// returns True if a file exists.
+// fileExists returns true if a path exists and is a regular file (not a directory).
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
+	if err != nil {
 		return false
 	}
 
 	return !info.IsDir()
 }
 
-func mustReadFile(path string) []byte {
+func readFile(path string) ([]byte, error) {
 	data, err := os.ReadFile(path) //nolint:gosec
 	if err != nil {
-		// Error Reading the file
-		logger.Log(logger.LevelError, nil, err, "reading file")
-		os.Exit(1)
+		return nil, err
 	}
 
-	return data
+	return data, nil
 }
 
-func mustWriteFile(path string, data []byte) {
-	err := os.WriteFile(path, data, fs.FileMode(0o600))
-	if err != nil {
-		// Error writing the file
-		logger.Log(logger.LevelError, nil, err, "writing file")
-		os.Exit(1)
-	}
+func writeFile(path string, data []byte) error {
+	return os.WriteFile(path, data, fs.FileMode(0o600))
 }
 
 func makeBaseURLReplacements(data []byte, baseURL string) []byte {
@@ -182,20 +174,31 @@ func makeBaseURLReplacements(data []byte, baseURL string) []byte {
 }
 
 // make sure the base-url is updated in the index.html file.
-func baseURLReplace(staticDir string, baseURL string) {
-	indexBaseURL := path.Join(staticDir, "index.baseUrl.html")
-	index := path.Join(staticDir, "index.html")
+func baseURLReplace(staticDir string, baseURL string) error {
+	indexBaseURL := filepath.Join(staticDir, "index.baseUrl.html")
+	index := filepath.Join(staticDir, "index.html")
 
 	// keep a copy of the untouched index.html file as the source for replacements
 	if !fileExists(indexBaseURL) {
-		d := mustReadFile(index)
-		mustWriteFile(indexBaseURL, d)
+		d, err := readFile(index)
+		if err != nil {
+			return err
+		}
+
+		if err := writeFile(indexBaseURL, d); err != nil {
+			return err
+		}
 	}
 
 	// replace baseURL starting from the original copy, incase we run this multiple times
-	data := mustReadFile(indexBaseURL)
+	data, err := readFile(indexBaseURL)
+	if err != nil {
+		return err
+	}
+
 	output := makeBaseURLReplacements(data, baseURL)
-	mustWriteFile(index, output)
+
+	return writeFile(index, output)
 }
 
 func getOidcCallbackURL(r *http.Request, config *HeadlampConfig) string {
@@ -399,7 +402,7 @@ func addPluginListRoute(config *HeadlampConfig, r *mux.Router) {
 }
 
 //nolint:gocognit,funlen,gocyclo
-func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Handler {
+func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) (http.Handler, error) {
 	kubeConfigPath := config.KubeConfigPath
 
 	config.StaticPluginDir = os.Getenv("HEADLAMP_STATIC_PLUGINS_DIR")
@@ -439,13 +442,26 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
 			go plugins.Watch(ctx, config.UserPluginDir, userPluginEventChan)
 			// Merge both event channels into one
 			go func() {
-				for event := range userPluginEventChan {
-					pluginEventChan <- event
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case event, ok := <-userPluginEventChan:
+						if !ok {
+							return
+						}
+						select {
+						case <-ctx.Done():
+							return
+						case pluginEventChan <- event:
+						}
+					}
 				}
 			}()
 		}
 
 		go plugins.HandlePluginEvents(
+			ctx,
 			config.StaticPluginDir,
 			config.UserPluginDir,
 			config.PluginDir,
@@ -483,7 +499,9 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
 	}
 
 	if config.StaticDir != "" {
-		baseURLReplace(config.StaticDir, config.BaseURL)
+		if err := baseURLReplace(config.StaticDir, config.BaseURL); err != nil {
+			return nil, fmt.Errorf("base-url replacement failed for static dir %q and base URL %q: %w", config.StaticDir, config.BaseURL, err)
+		}
 	}
 
 	// For when using a base-url, like "/headlamp" with a reverse proxy.
@@ -960,10 +978,10 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
 			methods,
 			handlers.AllowCredentials(),
 			handlers.AllowedOriginValidator(func(s string) bool { return true }),
-		)(r)
+		)(r), nil
 	}
 
-	return r
+	return r, nil
 }
 
 // setTokenFromCookie attempts to get a token from the cookie and set it as Authorization header.
@@ -1263,7 +1281,13 @@ func StartHeadlampServer(config *HeadlampConfig) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	handler := createHeadlampHandler(ctx, config)
+	handler, err := createHeadlampHandler(ctx, config)
+	if err != nil {
+		logger.Log(logger.LevelError, nil, err, "failed to create headlamp handler")
+		cancel()
+		os.Exit(1)
+	}
+
 	handler = config.OIDCTokenRefreshMiddleware(handler)
 
 	// Only validate the Host header when listening on a loopback address.
